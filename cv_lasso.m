@@ -47,6 +47,7 @@ dfs = arrayfun(@(i)nnz(betas(:,i) == 0), 1:size(lambdas, 2));
 % if df = 0, then used 
 error_min_ind = find(error_mean == min(error_mean), 1, 'last');
 beta = betas(:,error_min_ind);
+cv_error = error_mean(error_min_ind);
 
 % if df > 0, then used
 if (df > 0)
@@ -54,6 +55,7 @@ if (df > 0)
     df_ind = df_inds(find(error_mean(df_inds) == ...
         min(error_mean(df_inds)), 1, 'last'));
     beta = betas(:, df_ind);
+    cv_error = error_mean(df_ind);
 end
 
 % intercept
@@ -127,14 +129,13 @@ end
 
 %%% output
 % coef
-name = sprintf('intercept');
-coef.(name) = intercept;
+coef.('intercept') = intercept;
 for k = 2:21
     name = sprintf('var%d', (k - 1));
     coef.(name) = beta((k - 1));
 end
-name = sprintf('df');
-coef.(name) = nnz(beta == 0);
+coef.('df') = nnz(beta == 0);
+coef.('mse') = cv_error;
 % error
 summary = table;
 summary.lambda = lambdas(1:stop_ind)';
