@@ -47,9 +47,8 @@ x_best = cd_opt(beta0, f, v, s, n_it);
     
     % soft thresholding function for co-ordinate descent method
     function value = st_f (i, x, y, beta)
-        x_ic = x ; x_ic(:,i) = [];
-        beta_ic = beta; beta_ic(i) = [];
-        value = x(:,i)' * (y - x_ic * beta_ic) / (x(:,i)' * x(:,i));
+        value = x(:,i)' * (y - x(:,[1:(i - 1) (i + 1):sx]) * ...
+            beta([1:(i - 1) (i + 1):sx])) / (x(:,i)' * x(:,i));
     end
 
     function x_best = cd_opt(x, f, v, s, n_it)
