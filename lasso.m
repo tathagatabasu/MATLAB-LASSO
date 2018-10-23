@@ -20,6 +20,7 @@ function betas = lasso(lambdas, x, y, n_it)
 beta0 = ones(20, 1);
 betas = zeros(20, size(lambdas, 2));
 k = 1;
+sx = size(x, 2);
 
 while (sum(abs(beta0)) > 0.00001)
     k = k + 1;

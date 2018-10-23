@@ -1,6 +1,6 @@
 function [coef, summary] = cv_lasso(lambdas, x, y, k, n_it, df)
 %CV_LASSO cross-validated LASSO estimates
-%   [coef, summuary] = CV_LASSO(lambdas, x, y, k, n_it, df) returns a 
+%   [coef, summary] = CV_LASSO(lambdas, x, y, k, n_it, df) returns a 
 %   structure of coefficients and summary frame of mean-squared error with 
 %   degrees of freedom.
 %
