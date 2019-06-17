@@ -1,16 +1,15 @@
-function [coef, summary] = cv_lasso(lambdas, x, y, k, n_it, df)
+function [coef, summary] = cv_lasso(x, y, k, n_it, df)
 %CV_LASSO cross-validated LASSO estimates
 %   [coef, summary] = CV_LASSO(lambdas, x, y, k, n_it, df) returns a 
 %   structure of coefficients and summary frame of mean-squared error with 
 %   degrees of freedom.
 %
-%   lambdas is the sequence of penalty term for the LASSO objective.
 %   x is the predictor matrix.
 %   y is the response matrix.
 %   k is the number of fold for cross-validation.
 %   n_it is the maximum number of iteration for the update of coefficients.
-%   df is the minimum degree of freedom. df allows user to reduce 
-%   the number of variables in regression coefficients. df = size(x, 2) 
+%   df is the number of non-zero variables. df allows user to reduce 
+%   the number of variables in regression coefficients. df = 0 
 %   will make every estimate equal to zero.
 %
 %   Example:
@@ -22,44 +21,58 @@ function [coef, summary] = cv_lasso(lambdas, x, y, k, n_it, df)
 %
 %       [coef, summ] = cv_lasso(lambdas, x, y, 5, 100, 10);
 
-data_partition = cv_random_partition(x, y, k)';
+% characterise x
+x_p = size(x, 2);
+x_n = size(x, 1);
+% charecterise y
+y_n = size(y, 1);
+
+if x_n ~= y_n
+   error('dimension of inputs and output must be same')
+end
+
+lmax = max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500));
+lambdas = exp(linspace(-5, lmax, 100));
+z = [ones(x_n, 1), x];
+% charecterise lambdas
+l_n = size(lambdas, 2);
+
+
+data_partition = cv_random_partition(z, y, k)';
 
 model = arrayfun(@(i)cv_train(i, data_partition, lambdas, n_it), 1:k,...
     'UniformOutput', false);
 
 % storing the coefficients obtained from k-fold cross-validation
-betas_store = zeros(size(x, 2), size(lambdas, 2), k);
+betas_store = zeros((x_p+1), l_n, k);
 for i = 1:k
     betas_store(:,:,i) = cell2mat(model(i));
 end
 betas = mean(betas_store, 3);
 
 % error-handling
-error = arrayfun(@(i)cv_test(i, data_partition, model'), 1:k,...
+model_error = arrayfun(@(i)cv_test(i, data_partition, model'), 1:k,...
     'UniformOutput', false);
-error_mean = mean(cell2mat(error'), 1);
-error_sd = std(cell2mat(error'), 0, 1);
+error_mean = mean(cell2mat(model_error'), 1);
+error_sd = std(cell2mat(model_error'), 0, 1);
 
 % degrees of freedom
-dfs = arrayfun(@(i)nnz(betas(:,i) == 0), 1:size(lambdas, 2));
+dfs = arrayfun(@(i)nnz(betas(2:(x_p+1),i) ~= 0), 1:l_n);
 
 %%% LASSO estimates
-% if df = 0, then used 
+% if df = size(x, 2), then used 
 error_min_ind = find(error_mean == min(error_mean), 1, 'last');
 beta = betas(:,error_min_ind);
 cv_error = error_mean(error_min_ind);
 
-% if df > 0, then used
-if (df > 0)
-    df_inds = find(dfs >= df);
+% if df < size(x, 2), then used
+if (df < x_p)
+    df_inds = find(dfs <= df);
     df_ind = df_inds(find(error_mean(df_inds) == ...
         min(error_mean(df_inds)), 1, 'last'));
     beta = betas(:, df_ind);
     cv_error = error_mean(df_ind);
 end
-
-% intercept
-intercept = mean(y, 1) - mean(x, 1) * beta;
 
 %%% Figures
 stop_ind = find(sum(abs(betas)) == 0, 1 );
@@ -74,7 +87,9 @@ ylabel('mean-squared error')
 
 % LASSO coefficient path
 figure
-plot(log(lambdas(1:stop_ind)), betas(:,1:stop_ind))
+plot(log(lambdas(1:stop_ind)), betas(2:(x_p+1),1:stop_ind))
+xax = refline([0 0]);
+xax.Color = 'k';
 title('lasso coefficient path')
 xlabel('log(\lambda)')
 ylabel('values of \beta')
@@ -113,7 +128,7 @@ y = traindata(:,1);
 model = lasso(lambdas, x, y, n_it);
 end
 % function for testing the model
-function error = cv_test(i, data_partition, model)
+function test_error = cv_test(i, data_partition, model)
 
 testdata = data_partition(i,:);
 testdata = cell2mat(testdata);
@@ -124,17 +139,17 @@ cv_predict = @(beta, x)(x * beta);
 estimate = arrayfun(@(j)(cv_predict(model(:,j), x)), 1:size(model, 2),...
     'UniformOutput', false);
 estimate = cell2mat(estimate);
-error = arrayfun(@(j)cv_mse(y, estimate(:,j)), 1:size(estimate, 2));
+test_error = arrayfun(@(j)cv_mse(y, estimate(:,j)), 1:size(estimate, 2));
 end
 
 %%% output
 % coef
-coef.('intercept') = intercept;
-for k = 2:21
-    name = sprintf('var%d', (k - 1));
-    coef.(name) = beta((k - 1));
+coef.('intercept') = beta((1));
+for k = 2:size(x, 2)
+    name = sprintf('beta%d', (k - 1));
+    coef.(name) = beta((k));
 end
-coef.('df') = nnz(beta == 0);
+coef.('df') = x_p - nnz(beta == 0);
 coef.('mse') = cv_error;
 % error
 summary = table;

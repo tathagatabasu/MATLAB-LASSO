@@ -17,15 +17,24 @@ function betas = lasso(lambdas, x, y, n_it)
 %
 %       betas = lasso(lambdas, x, y, 100);
 
-beta0 = ones(20, 1);
-betas = zeros(20, size(lambdas, 2));
-k = 1;
-sx = size(x, 2);
+% characterise x
+x_p = size(x, 2);
+x_n = size(x, 1);
+% charecterise y
+y_n = size(y, 1);
+% charecterise lambdas
+l_n = size(lambdas, 2);
 
-while (sum(abs(beta0)) > 0.00001)
-    k = k + 1;
-    betas(:,(k - 1)) = lasso_cd(lambdas(1,(k - 1)), x, y, beta0, n_it);
-    beta0 = betas(:,(k-1));
+if x_n ~= y_n
+   error('dimension of inputs and output must be same')
+end
+
+beta0 = zeros((x_p), 1);
+betas = zeros((x_p), l_n);
+
+for k = 1:l_n
+    betas(:,(k)) = lasso_cd(lambdas(1,(k)), x, y, beta0, n_it);
+    beta0 = betas(:,k);
 end
 
 function x_best = lasso_cd(lambda, x, y, beta0, n_it)
@@ -48,26 +57,26 @@ x_best = cd_opt(beta0, f, v, s, n_it);
     
     % soft thresholding function for co-ordinate descent method
     function value = st_f (i, x, y, beta)
-        value = x(:,i)' * (y - x(:,[1:(i - 1) (i + 1):sx]) * ...
-            beta([1:(i - 1) (i + 1):sx])) / (x(:,i)' * x(:,i));
+        value = x(:,i)' * (y - x(:,[1:(i - 1) (i + 1):size(x, 2)]) * ...
+            beta([1:(i - 1) (i + 1):size(x, 2)])) / (x(:,i)' * x(:,i));
     end
 
-    function x_best = cd_opt(x, f, v, s, n_it)
-        fx = f(x);
-        x_best = x;
-        fx_best = fx;
+    function z_best = cd_opt(z, f, v, s, n_it)
+        fz = f(z);
+        z_best = z;
+        fz_best = fz;
         for j = 1:1:n_it
-            x_last = x;
-            for i = 1:1:size(x, 1)
-                x(i) = s(v(i,x));
+            z_last = z;
+            for i = 1:1:size(z, 1)
+                z(i) = s(v(i,z));
             end
-            fx = f(x);
-            if (fx < fx_best)
-                x_best = x;
-                fx_best = fx;
+            fz = f(z);
+            if (fz < fz_best)
+                z_best = z;
+                fz_best = fz;
             end
-            if (sum(abs(x_last - x)) < 0.0001)
-                x_best = x;
+            if (sum(abs(z_last - z)) < 0.0001)
+                z_best = z;
                 break
             end
         end
