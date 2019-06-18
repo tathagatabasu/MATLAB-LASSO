@@ -1,16 +1,18 @@
-function [coef, summary] = cv_lasso(x, y, k, n_it, df)
+function [coef, summary] = cv_lasso(x, y, df, k, n_it, acc)
 %CV_LASSO cross-validated LASSO estimates
-%   [coef, summary] = CV_LASSO(lambdas, x, y, k, n_it, df) returns a 
+%   [coef, summary] = CV_LASSO(lambdas, x, y, df, k, n_it) returns a 
 %   structure of coefficients and summary frame of mean-squared error with 
 %   degrees of freedom.
 %
 %   x is the predictor matrix.
 %   y is the response matrix.
-%   k is the number of fold for cross-validation.
-%   n_it is the maximum number of iteration for the update of coefficients.
 %   df is the number of non-zero variables. df allows user to reduce 
-%   the number of variables in regression coefficients. df = 0 
-%   will make every estimate equal to zero.
+%   the number of predictors in the output. Default value is size(x, 2).
+%   k is the number of fold for cross-validation. Default value is 5
+%   n_it is the maximum number of iteration for the update of coefficients.
+%   Default value is 100.
+%   acc is the accuracy of the co-ordinate descent method. Default value is
+%   0.00001
 %
 %   Example:
 %       x = normrnd(0, 1, 500 ,20);
@@ -20,15 +22,55 @@ function [coef, summary] = cv_lasso(x, y, k, n_it, df)
 %       lambdas = exp(linspace(-5, 5, 100));
 %
 %       [coef, summ] = cv_lasso(lambdas, x, y, 5, 100, 10);
-
+ 
 % characterise x
 x_p = size(x, 2);
 x_n = size(x, 1);
 % charecterise y
 y_n = size(y, 1);
 
+% defaults
+if (nargin == 2)
+    df = x_p;
+    k = 5;
+    n_it = 100;
+    acc = 0.00001;
+elseif (nargin == 3)
+    k = 5;
+    n_it = 100;
+    acc = 0.00001;
+elseif (nargin == 4)
+    n_it = 100;
+    acc = 0.00001;
+elseif (nargin == 5)
+    acc = 0.00001;
+end
+
+
+% error checking
 if x_n ~= y_n
    error('dimension of inputs and output must be same')
+end
+if ((df < 0) || (df > x_p))
+    error('degrees of freedom must be between 0 and no. of predictors')
+end
+if k < 2
+    error('number of folds must be greater than or equal to 2')
+end
+% rounding non-integer inputs
+if df ~= round(df)
+    fprintf("degrees of freedom rounded to nearest integer %d \n",...
+        round(df))
+    df = round(df);
+end
+if k ~= round(k)
+    fprintf("number of folds rounded to nearest integer %d \n", round(k))
+    k = round(k);
+end
+if n_it ~= round(n_it)
+    fprintf("number of iterations rounded to nearest integer %d \n",...
+        round(n_it))
+    n_it = round(n_it);
 end
 
 lmax = max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500));
@@ -37,10 +79,9 @@ z = [ones(x_n, 1), x];
 % charecterise lambdas
 l_n = size(lambdas, 2);
 
-
 data_partition = cv_random_partition(z, y, k)';
 
-model = arrayfun(@(i)cv_train(i, data_partition, lambdas, n_it), 1:k,...
+model = arrayfun(@(i)cv_train(i, data_partition, lambdas, n_it, acc), 1:k,...
     'UniformOutput', false);
 
 % storing the coefficients obtained from k-fold cross-validation
@@ -60,10 +101,6 @@ error_sd = std(cell2mat(model_error'), 0, 1);
 dfs = arrayfun(@(i)nnz(betas(2:(x_p+1),i) ~= 0), 1:l_n);
 
 %%% LASSO estimates
-% if df = size(x, 2), then used 
-error_min_ind = find(error_mean == min(error_mean), 1, 'last');
-beta = betas(:,error_min_ind);
-cv_error = error_mean(error_min_ind);
 
 % if df < size(x, 2), then used
 if (df < x_p)
@@ -71,6 +108,10 @@ if (df < x_p)
     df_ind = df_inds(find(error_mean(df_inds) == ...
         min(error_mean(df_inds)), 1, 'last'));
     beta = betas(:, df_ind);
+    cv_error = error_mean(df_ind);
+else % if df = size(x, 2), then used 
+    df_ind = find(error_mean == min(error_mean), 1, 'last');
+    beta = betas(:,df_ind);
     cv_error = error_mean(df_ind);
 end
 
@@ -81,6 +122,8 @@ figure
 errorbar(log(lambdas(1:stop_ind)), error_mean(1:stop_ind),...
     error_sd(1:stop_ind),'-s', 'MarkerSize', 2,...
     'MarkerEdgeColor', 'red', 'MarkerFaceColor', 'red')
+yax = line([log(lambdas(df_ind)), log(lambdas(df_ind))], ylim);
+yax.Color = 'k';
 title('cross-validation curve')
 xlabel('log(\lambda)')
 ylabel('mean-squared error')
@@ -90,6 +133,8 @@ figure
 plot(log(lambdas(1:stop_ind)), betas(2:(x_p+1),1:stop_ind))
 xax = refline([0 0]);
 xax.Color = 'k';
+yax = line([log(lambdas(df_ind)), log(lambdas(df_ind))], ylim);
+yax.Color = 'k';
 title('lasso coefficient path')
 xlabel('log(\lambda)')
 ylabel('values of \beta')
@@ -118,14 +163,14 @@ total_error = sum(difference_square);
 error = total_error / size(estimate, 1);
 end
 % function for trainig the model
-function model = cv_train(i, data_partition, lambdas, n_it)
+function model = cv_train(i, data_partition, lambdas, n_it, acc)
 
 traindata = data_partition;
 traindata(i,:) = [];
 traindata = cell2mat(traindata);
 x = traindata(:,2:size(traindata, 2));
 y = traindata(:,1);
-model = lasso(lambdas, x, y, n_it);
+model = lasso(lambdas, x, y, n_it, acc);
 end
 % function for testing the model
 function test_error = cv_test(i, data_partition, model)
