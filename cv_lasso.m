@@ -22,32 +22,41 @@ function [coef, summary] = cv_lasso(x, y, df, k, n_it, acc)
 %       lambdas = exp(linspace(-5, 5, 100));
 %
 %       [coef, summ] = cv_lasso(lambdas, x, y, 5, 100, 10);
- 
+
+%% intial setups
 % characterise x
 x_p = size(x, 2);
 x_n = size(x, 1);
 % charecterise y
 y_n = size(y, 1);
+% charecterise lambdas
+lmax = max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500));
+lambdas = exp(linspace(-5, lmax, 100));
+l_n = size(lambdas, 2);
+% design matrix
+z = [ones(x_n, 1), x];
 
 % defaults
 if (nargin == 2)
     df = x_p;
     k = 5;
     n_it = 100;
-    acc = 0.00001;
+    acc = lmax * 0.00001;
 elseif (nargin == 3)
     k = 5;
     n_it = 100;
-    acc = 0.00001;
+    acc = lmax * 0.00001;
 elseif (nargin == 4)
     n_it = 100;
-    acc = 0.00001;
+    acc = lmax * 0.00001;
 elseif (nargin == 5)
-    acc = 0.00001;
+    acc = lmax * 0.00001;
+else
+    acc = lmax * acc;
 end
 
 
-% error checking
+%% input error checking
 if x_n ~= y_n
    error('dimension of inputs and output must be same')
 end
@@ -57,7 +66,10 @@ end
 if k < 2
     error('number of folds must be greater than or equal to 2')
 end
-% rounding non-integer inputs
+if n_it < 1
+    error('number of iterations must be greater than or equal to 1')
+end
+% handling non-integer inputs
 if df ~= round(df)
     fprintf("degrees of freedom rounded to nearest integer %d \n",...
         round(df))
@@ -73,12 +85,7 @@ if n_it ~= round(n_it)
     n_it = round(n_it);
 end
 
-lmax = max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500));
-lambdas = exp(linspace(-5, lmax, 100));
-z = [ones(x_n, 1), x];
-% charecterise lambdas
-l_n = size(lambdas, 2);
-
+%% cross validation
 data_partition = cv_random_partition(z, y, k)';
 
 model = arrayfun(@(i)cv_train(i, data_partition, lambdas, n_it, acc), 1:k,...
@@ -100,7 +107,7 @@ error_sd = std(cell2mat(model_error'), 0, 1);
 % degrees of freedom
 dfs = arrayfun(@(i)nnz(betas(2:(x_p+1),i) ~= 0), 1:l_n);
 
-%%% LASSO estimates
+%% LASSO estimates
 
 % if df < size(x, 2), then used
 if (df < x_p)
@@ -115,7 +122,7 @@ else % if df = size(x, 2), then used
     cv_error = error_mean(df_ind);
 end
 
-%%% Figures
+%% Figures
 stop_ind = find(sum(abs(betas)) == 0, 1 );
 % cross-validation curve
 figure
@@ -139,55 +146,52 @@ title('lasso coefficient path')
 xlabel('log(\lambda)')
 ylabel('values of \beta')
 
-%%% Functions required for evaluation of cross-validated LASSO estimates
+%% Functions required for evaluation of cross-validated LASSO estimates
 % function for creating k-fold random partition for cross-validation
 function split_data = cv_random_partition(x, y, k)
+    cv_data = [y x];
+    cv_data = cv_data(1:(fix((size(cv_data, 1) / k)) * k),:);
 
-cv_data = [y x];
-cv_data = cv_data(1:(fix((size(cv_data, 1) / k)) * k),:);
+    index_sample = datasample(1:size(cv_data, 1), size(cv_data, 1),...
+        'Replace', false);
+    cv_data = cv_data(index_sample,:);
+    div = fix(size(cv_data, 1) / k);
 
-index_sample = datasample(1:size(cv_data, 1), size(cv_data, 1),...
-    'Replace', false);
-cv_data = cv_data(index_sample,:);
-div = fix(size(cv_data, 1) / k);
-
-split_data = arrayfun(@(i)cv_data(((i - 1) * div + 1):(i * div),:),...
-    1:k, 'UniformOutput', false);
+    split_data = arrayfun(@(i)cv_data(((i - 1) * div + 1):(i * div),:),...
+        1:k, 'UniformOutput', false);
 end
 % function for calculating mean-squared error
 function error = cv_mse(original, estimate)
-
-difference = original - estimate;
-difference_square = difference .^ 2;
-total_error = sum(difference_square);
-error = total_error / size(estimate, 1);
+    difference = original - estimate;
+    difference_square = difference .^ 2;
+    total_error = sum(difference_square);
+    error = total_error / size(estimate, 1);
 end
 % function for trainig the model
 function model = cv_train(i, data_partition, lambdas, n_it, acc)
-
-traindata = data_partition;
-traindata(i,:) = [];
-traindata = cell2mat(traindata);
-x = traindata(:,2:size(traindata, 2));
-y = traindata(:,1);
-model = lasso(lambdas, x, y, n_it, acc);
+    traindata = data_partition;
+    traindata(i,:) = [];
+    traindata = cell2mat(traindata);
+    x = traindata(:,2:size(traindata, 2));
+    y = traindata(:,1);
+    model = lasso(x, y, lambdas, n_it, acc);
 end
 % function for testing the model
 function test_error = cv_test(i, data_partition, model)
-
-testdata = data_partition(i,:);
-testdata = cell2mat(testdata);
-x = testdata(:,2:size(testdata, 2));
-y = testdata(:,1);
-model = cell2mat(model(i,:));
-cv_predict = @(beta, x)(x * beta);
-estimate = arrayfun(@(j)(cv_predict(model(:,j), x)), 1:size(model, 2),...
-    'UniformOutput', false);
-estimate = cell2mat(estimate);
-test_error = arrayfun(@(j)cv_mse(y, estimate(:,j)), 1:size(estimate, 2));
+    testdata = data_partition(i,:);
+    testdata = cell2mat(testdata);
+    x = testdata(:,2:size(testdata, 2));
+    y = testdata(:,1);
+    model = cell2mat(model(i,:));
+    cv_predict = @(beta, x)(x * beta);
+    estimate = arrayfun(@(j)(cv_predict(model(:,j), x)),...
+        1:size(model, 2), 'UniformOutput', false);
+    estimate = cell2mat(estimate);
+    test_error = arrayfun(@(j)cv_mse(y, estimate(:,j)),... 
+        1:size(estimate, 2));
 end
 
-%%% output
+%% output
 % coef
 coef.('intercept') = beta((1));
 for k = 2:size(x, 2)

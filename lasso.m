@@ -1,11 +1,11 @@
-function betas = lasso(lambdas, x, y, n_it, acc)
+function betas = lasso(x, y, lambdas, n_it, acc)
 %LASSO lasso regularization using co-ordinate descent optimization method.
 %   betas = LASSO(lambdas, x, y, n_it) returns a matrix of lasso estimates
 %   for each value of lambda.
 %
-%   lambdas is the sequence of penalty term for the LASSO objective.
 %   x is the design matrix, i.e. x = [1, predictors].
 %   y is the response matrix.
+%   lambdas is the sequence of penalty term for the LASSO objective.
 %   n_it is the maximum number of iteration for the update of coefficients.
 %   acc is the accuracy of the co-ordinate descent method.
 %
@@ -18,18 +18,35 @@ function betas = lasso(lambdas, x, y, n_it, acc)
 %
 %       betas = lasso(lambdas, x, y, 100);
 
+%% intial setups
 % characterise x
 x_p = size(x, 2);
 x_n = size(x, 1);
 % charecterise y
 y_n = size(y, 1);
+
+% defaults
+if (nargin == 2)
+    lmax = max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500));
+    lambdas = exp(linspace(-5, lmax, 100));
+    n_it = 100;
+    acc = (max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500))) * 0.00001;
+elseif (nargin == 3)
+    n_it = 100;
+    acc = (max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500))) * 0.00001;
+elseif (nargin ==4)
+    acc = (max(max(abs((x'*y)./diag(x'*x))), max(abs(x'*y)/500))) * 0.00001;
+end
+
 % charecterise lambdas
 l_n = size(lambdas, 2);
 
+% error checking
 if x_n ~= y_n
    error('dimension of inputs and output must be same')
 end
 
+%% LASSO
 beta0 = zeros((x_p), 1);
 betas = zeros((x_p), l_n);
 
@@ -38,28 +55,28 @@ for k = 1:l_n
     beta0 = betas(:,k);
 end
 
+%% function for LASSO estimate
 function x_best = lasso_cd(lambda, x, y, beta0, n_it, acc)
+    soft = @(lambda)(@(x)(sign(x) * max(0, abs(x) - lambda)));
+    s = soft(lambda);
+    f = @(beta)(lasso_f(lambda, x, y, beta));
+    v = @(i, beta)st_f(i, x, y, beta);
 
-soft = @(lambda)(@(x)(sign(x) * max(0, abs(x) - lambda)));
-s = soft(lambda);
-f = @(beta)(lasso_f(lambda, x, y, beta));
-v = @(i, beta)st_f(i, x, y, beta);
-
-x_best = cd_opt(beta0, f, v, s, n_it);
+    x_best = cd_opt(beta0, f, v, s, n_it);
 
 
-% functions required for evaluation of the LASSO estimates
+    % functions required for evaluation of the LASSO estimates
 
     % the LASSO objective function
     function value = lasso_f (lambda, x, y, beta)
         value = sum((y - x * beta) .^ 2) / (2 * size(x , 1))...
             + lambda * sum(abs(beta));
     end
-    
+
     % soft thresholding function for co-ordinate descent method
     function value = st_f (i, x, y, beta)
-        value = x(:,i)' * (y - x(:,[1:(i - 1) (i + 1):size(x, 2)]) * ...
-            beta([1:(i - 1) (i + 1):size(x, 2)])) / (x(:,i)' * x(:,i));
+        value = x(:,i)' * (y - x(:,[1:(i - 1) (i + 1):size(x, 2)])...
+            * beta([1:(i - 1) (i + 1):size(x, 2)])) / (x(:,i)' * x(:,i));
     end
 
     function z_best = cd_opt(z, f, v, s, n_it)
